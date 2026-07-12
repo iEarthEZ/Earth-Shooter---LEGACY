@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Earth Shooter</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="ui-layer">
+        <div id="main-menu" class="screen">
+            <h1 class="title">Earth Shooter - LEGACY</h1>
+            <button id="start-btn" class="retro-btn">Start Game</button>
+        </div>
+
+        <div id="upgrade-screen" class="screen hidden">
+            <h1 class="title text-blue">LEVELED UP!</h1>
+            <div id="upgrade-options" class="upgrade-container">
+            </div>
+        </div>
+
+        <div id="game-over" class="screen hidden">
+            <h1 class="title text-red">Game Over</h1>
+            <p>Score: <span id="final-score">0</span></p>
+            <p>Level: <span id="final-level">1</span></p>
+            <div class="button-group">
+                <button id="respawn-btn" class="retro-btn">Respawn</button>
+                <button id="menu-btn" class="retro-btn">Main Menu</button>
+            </div>
+        </div>
+
+        <div id="hud" class="hidden">
+            <div class="hud-top">
+                <p>Score: <span id="score-display">0</span> | Lvl <span id="level-display">1</span></p>
+                <div id="exp-bar-container">
+                    <div id="exp-bar"></div>
+                </div>
+            </div>
+            <div class="hud-bottom">
+                <p>Health</p>
+                <div id="health-bar-container">
+                    <div id="player-health-bar"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script src="script.js"></script>
+</body>
+</html>
