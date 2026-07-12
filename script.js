@@ -37,13 +37,19 @@ let screenShake = 0;
 let chronoFluxTimer = 0; 
 let player;
 
+// --- NEW DEATH STATE VARIABLES ---
+let deathPhase = 0; 
+let deathTimer = 0;
+
 // Randomized Boss Engine Trackers
 let activeBoss = null;
 let activeSunBoss = null;
 let activeNemesisBoss = null;
+let activePhantomBoss = null; 
 let levelsSinceBlackhole = 10;
 let levelsSinceSun = 10;
 let levelsSinceNemesis = 20;
+let levelsSincePhantom = 15;  
 
 // Dynamic Environment Systems
 let asteroids = [];
@@ -51,11 +57,23 @@ let nebulas = [];
 let empTimer = 0;
 let empDisabledTimer = 0;
 
+// NEW: Asteroid Belt Hazard Engine Trackers
+let asteroidBeltEvent = {
+    stage: 0,        
+    timer: 1200,     
+    stageTimer: 0,
+    paths: [],
+    rocks: []
+};
+
 // Supernova Finale Architecture
 let supernovaActive = false;
 let supernovaTimer = 180 * 60; 
 let supernovaRadius = 2500;
 let gameWon = false;
+
+// Smooth Grid Color Transition State
+let gridColorState = { r: 0, g: 191, b: 255, a: 0.45 };
 
 const keys = { w: false, a: false, s: false, d: false, space: false };
 const mouse = { x: canvas.width / 2, y: canvas.height / 2, isDown: false, worldX: 0, worldY: 0 };
@@ -63,8 +81,6 @@ const mouse = { x: canvas.width / 2, y: canvas.height / 2, isDown: false, worldX
 window.addEventListener('keydown', (e) => { 
     if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; 
     if(e.code === 'Space') keys.space = true;
-    
-    // Smoothly vent gravity pressure and play animation when 'G' is pressed
     if(e.key.toLowerCase() === 'g' && player) {
         player.ventGravity();
     }
@@ -412,14 +428,12 @@ class Player {
     ventGravity() {
         if (this.gravityBar > 0) {
             this.gravityBar = Math.max(0, this.gravityBar - 15);
-            // Create a physical "steam vent" particle burst effect
             createExplosion(this.x, this.y, '#00ffff', 8);
             playShootSound(); 
         }
     }
 
     update() {
-        // Handle Active Dash Synergy
         if (this.isDashing) {
             this.dashDuration--;
             this.x += this.vx;
@@ -436,7 +450,6 @@ class Player {
 
         if (this.dashCooldown > 0) this.dashCooldown--;
 
-        // Trigger Blood Dash (Agility + Vampiric Strike Required)
         if (keys.space && this.dashCooldown <= 0 && this.maxSpeed > 6.8 && this.lifesteal > 0) {
             if (this.health > 10) {
                 this.health -= 5;
@@ -452,24 +465,19 @@ class Player {
             }
         }
 
-        // Build up gravity pressure automatically
-        this.gravityBar = Math.min(100, this.gravityBar + 0.2); 
-        
-        // Smoothly interpolate the display bar towards the actual value
+        this.gravityBar = Math.min(100, this.gravityBar + 0.05); 
         this.displayGravityBar += (this.gravityBar - this.displayGravityBar) * 0.1;
 
         let currentAccel = this.acceleration;
         let currentMax = this.maxSpeed;
 
-        // Apply speed penalty if gravity pressure is too high
         if (this.gravityBar > this.gravityThreshold) {
-            let overage = (this.gravityBar - this.gravityThreshold) / (100 - this.gravityThreshold); // 0 to 1
-            let speedMultiplier = 1 - (overage * 0.7); // Slows down up to 70%
+            let overage = (this.gravityBar - this.gravityThreshold) / (100 - this.gravityThreshold); 
+            let speedMultiplier = 1 - (overage * 0.7); 
             currentAccel *= speedMultiplier;
             currentMax *= speedMultiplier;
         }
 
-        // Nebula Hazard Impact (Halves Speed)
         nebulas.forEach(n => {
             if (Math.hypot(this.x - n.x, this.y - n.y) < n.radius) {
                 currentAccel *= 0.5;
@@ -498,7 +506,6 @@ class Player {
         if (this.shootCooldown > 0) this.shootCooldown--;
         if (mouse.isDown && this.shootCooldown <= 0) {
             this.shoot();
-            // EMP Hazard Overload check (Slows Rate)
             this.shootCooldown = empDisabledTimer > 0 ? this.fireRate * 2.5 : this.fireRate;
         }
         this.draw();
@@ -509,7 +516,6 @@ class Player {
         const baseSpeed = 15;
         playShootSound();
         
-        // Check structural updates/emp overrides
         let bulletCount = empDisabledTimer > 0 ? 1 : this.spreadCount;
         let baseDamage = this.projectileDamage;
 
@@ -529,7 +535,7 @@ class Player {
     }
 
     takeDamage(amount) {
-        if (this.isDashing) return; // Invulnerable during active vector dash
+        if (this.isDashing) return; 
 
         if (this.damageReduction && amount > 0) {
             amount = Math.max(1, Math.round(amount * (1 - this.damageReduction)));
@@ -549,8 +555,9 @@ class Player {
         }
         this.updateHealthUI();
 
-        if (this.health <= 0 && !isGameOver) {
-            triggerGameOver();
+        // Check for new death sequence integration
+        if (this.health <= 0 && deathPhase === 0) {
+            initiateDeathSequence();
         }
     }
 
@@ -593,11 +600,9 @@ class Projectile {
         this.y += this.velocity.y;
         this.distanceTraveled += Math.hypot(this.velocity.x, this.velocity.y);
 
-        // Time-Tear Lance Synergy (Chrono Flux + Piercing Modifiers active)
         if (player.chronoFluxChance > 0 && player.pierce > 0 && frames % 4 === 0) {
             shockwaves.push(new Shockwave(this.x, this.y, 'rgba(0, 255, 255, 0.15)', 40, 2));
         }
-
         this.draw();
     }
 }
@@ -632,20 +637,17 @@ class DynamicHazard {
             this.x += this.vx;
             this.y += this.vy;
             
-            // Check Collision with player
             if (Math.hypot(player.x - this.x, player.y - this.y) < this.radius + player.radius) {
                 player.takeDamage(2);
                 this.vx *= -1;
                 this.vy *= -1;
             }
 
-            // Check collision with enemies
             enemies.forEach(e => {
                 if (Math.hypot(e.x - this.x, e.y - this.y) < this.radius + e.radius) {
                     e.health -= 5;
                 }
             });
-
             this.draw();
         } else if (this.type === 'nebula') {
             this.draw();
@@ -670,6 +672,82 @@ class DynamicHazard {
     }
 }
 
+class QuantumPhantom {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = 65;
+        this.maxHealth = 480 + (level * 45);
+        this.health = this.maxHealth;
+        this.name = "QUANTUM PHANTOM";
+        
+        this.teleportTimer = 160;
+        this.shootCooldown = 40;
+        this.alpha = 1.0;
+        this.isPhased = false; 
+    }
+
+    draw() {
+        if (this.alpha <= 0.05) return;
+        
+        ctx.save();
+        ctx.globalAlpha = this.alpha;
+        
+        ctx.beginPath();
+        const pulse = Math.sin(frames * 0.1) * 8;
+        ctx.arc(this.x, this.y, this.radius + pulse, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 255, 170, 0.3)';
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * 0.7, 0, Math.PI * 2);
+        ctx.fillStyle = '#0a1a14';
+        ctx.strokeStyle = '#00ffa2';
+        ctx.lineWidth = 4;
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    update() {
+        this.teleportTimer--;
+
+        if (this.teleportTimer <= 40 && this.teleportTimer > 0) {
+            this.isPhased = true;
+            this.alpha = Math.max(0, this.alpha - 0.05);
+        }
+
+        if (this.teleportTimer <= 0) {
+            const teleportAngle = Math.random() * Math.PI * 2;
+            const teleportDist = 300 + Math.random() * 400;
+            this.x = player.x + Math.cos(teleportAngle) * teleportDist;
+            this.y = player.y + Math.sin(teleportAngle) * teleportDist;
+            this.teleportTimer = 180 + Math.random() * 80;
+            this.isPhased = false; 
+        }
+
+        if (!this.isPhased && this.alpha < 1) {
+            this.alpha = Math.min(1, this.alpha + 0.05);
+        }
+
+        if (this.alpha >= 0.9) {
+            this.shootCooldown--;
+            if (this.shootCooldown <= 0) {
+                playShootSound();
+                const angleToPlayer = Math.atan2(player.y - this.y, player.x - this.x);
+                for(let i = -1; i <= 1; i++) {
+                    const offsetAngle = angleToPlayer + (i * 0.2);
+                    const velocity = { x: Math.cos(offsetAngle) * 5.5, y: Math.sin(offsetAngle) * 5.5 };
+                    enemyProjectiles.push(new EnemyProjectile(this.x, this.y, 7, '#00ffa2', velocity, 15 + Math.floor(level*0.1)));
+                }
+                this.shootCooldown = 65; 
+            }
+        }
+        this.draw();
+    }
+}
+
 class AdaptiveNemesis {
     constructor(x, y) {
         this.x = x;
@@ -680,7 +758,6 @@ class AdaptiveNemesis {
         this.name = "NEMESIS V.3-ADAPTIVE";
         this.cooldown = 0;
         
-        // Scan Player Strengths
         this.counterShield = player.fireRate <= 4; 
         this.counterTractor = player.maxSpeed > 8; 
         this.counterRad = player.lifesteal > 0;   
@@ -696,7 +773,6 @@ class AdaptiveNemesis {
         ctx.fill();
         ctx.stroke();
 
-        // Project Defensive Shield UI
         if (this.counterShield && frames % 120 < 60) {
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.radius + 25, 0, Math.PI * 2);
@@ -705,7 +781,6 @@ class AdaptiveNemesis {
             ctx.stroke();
         }
 
-        // Project Active Tractor Ray Visual Link
         if (this.counterTractor && frames % 4 === 0) {
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
@@ -719,25 +794,20 @@ class AdaptiveNemesis {
 
     update() {
         const angle = Math.atan2(player.y - this.y, player.x - this.x);
-        
-        // Basic tracking logic
         this.x += Math.cos(angle) * 1.5;
         this.y += Math.sin(angle) * 1.5;
 
-        // Counter Strategy A: Tractor Beams restricts rapid flight velocity
         if (this.counterTractor) {
             player.vx -= Math.cos(angle) * 0.25;
             player.vy -= Math.sin(angle) * 0.25;
         }
 
-        // Counter Strategy B: Corrosive Exhaust leaks on field to combat healing
         if (this.counterRad && frames % 30 === 0) {
             shockwaves.push(new Shockwave(this.x, this.y, 'rgba(255, 0, 85, 0.15)', 300, 3));
         }
 
         this.cooldown--;
         if (this.cooldown <= 0) {
-            // High payload counter bursts targeting players directly
             for (let i = -1; i <= 1; i++) {
                 const projAngle = angle + (i * 0.2);
                 const velocity = { x: Math.cos(projAngle) * 6, y: Math.sin(projAngle) * 6 };
@@ -745,7 +815,6 @@ class AdaptiveNemesis {
             }
             this.cooldown = 80;
         }
-
         this.draw();
     }
 }
@@ -993,7 +1062,6 @@ class Enemy {
     draw() {
         ctx.save();
         
-        // Cloaking mechanism inside Nebulas
         let insideNebula = false;
         nebulas.forEach(n => {
             if (Math.hypot(this.x - n.x, this.y - n.y) < n.radius) insideNebula = true;
@@ -1045,17 +1113,15 @@ class Enemy {
             currentSpeed *= 0.4;
         }
 
-        // Handle Active Boss Gravity Override Interaction
-        let masterBoss = activeBoss || activeSunBoss || activeNemesisBoss;
+        let masterBoss = activeBoss || activeSunBoss || activeNemesisBoss || activePhantomBoss;
         if (masterBoss && masterBoss !== this) {
             const angleToBoss = Math.atan2(masterBoss.y - this.y, masterBoss.x - this.x);
             this.x += Math.cos(angleToBoss) * 2;
             this.y += Math.sin(angleToBoss) * 2;
         } else {
-            // Player Unstable Gravity Pulls Enemies
             if (player.gravityBar > player.gravityThreshold) {
                 let overage = (player.gravityBar - player.gravityThreshold) / (100 - player.gravityThreshold);
-                let pullForce = overage * 4.5; // Max pull speed
+                let pullForce = overage * 4.5; 
                 if (dist < 800) {
                     this.x += Math.cos(angle) * pullForce;
                     this.y += Math.sin(angle) * pullForce;
@@ -1251,10 +1317,11 @@ function updateAndDrawStars(playerVx, playerVy) {
         star.vx *= 0.92;
         star.vy *= 0.92;
         
-        if (activeBoss) {
+        let targetBoss = activeBoss || activePhantomBoss;
+        if (targetBoss) {
             const starWorldX = star.x + player.x - canvas.width/2;
             const starWorldY = star.y + player.y - canvas.height/2;
-            const angleToBoss = Math.atan2(activeBoss.y - starWorldY, activeBoss.x - starWorldX);
+            const angleToBoss = Math.atan2(targetBoss.y - starWorldY, targetBoss.x - starWorldX);
             star.x += Math.cos(angleToBoss) * 2;
             star.y += Math.sin(angleToBoss) * 2;
         }
@@ -1286,9 +1353,13 @@ function init() {
     activeBoss = null;
     activeSunBoss = null;
     activeNemesisBoss = null;
+    activePhantomBoss = null;
+    
     levelsSinceBlackhole = 10;
     levelsSinceSun = 10;
     levelsSinceNemesis = 20;
+    levelsSincePhantom = 15;
+    
     empTimer = 0;
     empDisabledTimer = 0;
     supernovaActive = false;
@@ -1305,6 +1376,20 @@ function init() {
     isGameOver = false;
     isPaused = false;
     
+    // NEW DEATH STATE RESET
+    deathPhase = 0; 
+    deathTimer = 0;
+    
+    gridColorState = { r: 0, g: 191, b: 255, a: 0.45 }; 
+    
+    asteroidBeltEvent = {
+        stage: 0,
+        timer: 1500, 
+        stageTimer: 0,
+        paths: [],
+        rocks: []
+    };
+
     initStars();
     updateHUD();
     player.takeDamage(0);
@@ -1341,8 +1426,8 @@ function addExperience(amount) {
         levelsSinceBlackhole++;
         levelsSinceSun++;
         levelsSinceNemesis++;
+        levelsSincePhantom++; 
         
-        // Dynamic Environmental Setup Hooks based on Zone limits
         if (level === 11) {
             for(let i=0; i<8; i++) asteroids.push(new DynamicHazard('asteroid'));
         } else if (level === 21) {
@@ -1355,7 +1440,6 @@ function addExperience(amount) {
             empDisabledTimer = 0;
         }
 
-        // Trigger Supernova Finale Alert Matrix
         if (level >= 100 && !supernovaActive) {
             supernovaActive = true;
             floatingTexts.push(new FloatingText(player.x, player.y - 80, "SUPERNOVA IMMINENT: INVERSION PROTOCOL", '#ff0055', 24));
@@ -1418,25 +1502,39 @@ function spawnEnemy() {
     enemies.push(new Enemy(x, y, chosenType));
 }
 
-// --- UPGRADED CINEMATIC GRID SYSTEM ---
+function getSmoothGridColor() {
+    let target = { r: 0, g: 191, b: 255, a: 0.45 }; 
+    
+    if (player.gravityBar > player.gravityThreshold) target = { r: 0, g: 255, b: 255, a: 0.7 };
+    else if (activeBoss) target = { r: 156, g: 39, b: 176, a: 0.6 };
+    else if (activeSunBoss) target = { r: 255, g: 152, b: 0, a: 0.6 };
+    else if (activeNemesisBoss) target = { r: 255, g: 0, b: 85, a: 0.6 };
+    else if (activePhantomBoss) target = { r: 0, g: 255, b: 170, a: 0.6 }; 
+
+    gridColorState.r += (target.r - gridColorState.r) * 0.02;
+    gridColorState.g += (target.g - gridColorState.g) * 0.02;
+    gridColorState.b += (target.b - gridColorState.b) * 0.02;
+    gridColorState.a += (target.a - gridColorState.a) * 0.02;
+    
+    return `rgba(${Math.round(gridColorState.r)}, ${Math.round(gridColorState.g)}, ${Math.round(gridColorState.b)}, ${gridColorState.a})`;
+}
+
 function drawInfiniteGrid(cameraX, cameraY) {
     const gridSize = 100;
-    const stepSize = 15; // Enhanced high-density resolution steps for silky smooth geometric warping
+    const stepSize = 15; 
     
     const startX = Math.floor(cameraX / gridSize) * gridSize - gridSize;
     const endX = startX + canvas.width + gridSize * 2;
     const startY = Math.floor(cameraY / gridSize) * gridSize - gridSize;
     const endY = startY + canvas.height + gridSize * 2;
 
-    let coreBoss = activeBoss || activeSunBoss || activeNemesisBoss;
+    let coreBoss = activeBoss || activeSunBoss || activeNemesisBoss || activePhantomBoss;
 
-    // Beautiful mathematical lens logic
     function getLensedPosition(worldX, worldY) {
         let finalX = worldX;
         let finalY = worldY;
         let finalFactor = 0;
 
-        // 1. Boss Gravity
         if (coreBoss) {
             const dx = worldX - coreBoss.x;
             const dy = worldY - coreBoss.y;
@@ -1457,7 +1555,6 @@ function drawInfiniteGrid(cameraX, cameraY) {
             }
         }
 
-        // 2. Player Unstable Gravity (when bar is high)
         if (player.gravityBar > player.gravityThreshold) {
             const dx = worldX - player.x;
             const dy = worldY - player.y;
@@ -1480,15 +1577,8 @@ function drawInfiniteGrid(cameraX, cameraY) {
         return { x: finalX, y: finalY, factor: finalFactor };
     }
 
-    // Dynamic reactive color themes tied directly to boss states
-    let strainColor = 'rgba(0, 191, 255, 0.45)'; // Default space blue
-    if (activeBoss) strainColor = 'rgba(156, 39, 176, 0.6)';      // Singularity Magenta
-    if (activeSunBoss) strainColor = 'rgba(255, 152, 0, 0.6)';    // Solar Core Gold
-    if (activeNemesisBoss) strainColor = 'rgba(255, 0, 85, 0.6)'; // Nemesis Precision Pink
-    // Override color to intense teal if player gravity is collapsing
-    if (player.gravityBar > player.gravityThreshold) strainColor = 'rgba(0, 255, 255, 0.7)';
+    const currentStrainColor = getSmoothGridColor(); 
 
-    // Render Vertical Grid Channels
     for (let x = startX; x <= endX; x += gridSize) {
         ctx.beginPath();
         let first = true;
@@ -1506,9 +1596,8 @@ function drawInfiniteGrid(cameraX, cameraY) {
             }
         }
         
-        // Apply visual weight shifting depending on gravitational strain
         if (maxLineFactor > 0.05 && (coreBoss || player.gravityBar > player.gravityThreshold)) {
-            ctx.strokeStyle = strainColor;
+            ctx.strokeStyle = currentStrainColor;
             ctx.lineWidth = 1.5 + maxLineFactor * 2.0;
         } else {
             ctx.strokeStyle = '#222';
@@ -1517,7 +1606,6 @@ function drawInfiniteGrid(cameraX, cameraY) {
         ctx.stroke();
     }
 
-    // Render Horizontal Grid Channels
     for (let y = startY; y <= endY; y += gridSize) {
         ctx.beginPath();
         let first = true;
@@ -1536,7 +1624,7 @@ function drawInfiniteGrid(cameraX, cameraY) {
         }
         
         if (maxLineFactor > 0.05 && (coreBoss || player.gravityBar > player.gravityThreshold)) {
-            ctx.strokeStyle = strainColor;
+            ctx.strokeStyle = currentStrainColor;
             ctx.lineWidth = 1.5 + maxLineFactor * 2.0;
         } else {
             ctx.strokeStyle = '#222';
@@ -1547,7 +1635,7 @@ function drawInfiniteGrid(cameraX, cameraY) {
 }
 
 function drawBossUI() {
-    let currentBoss = activeBoss || activeSunBoss || activeNemesisBoss;
+    let currentBoss = activeBoss || activeSunBoss || activeNemesisBoss || activePhantomBoss;
     if (!currentBoss) return;
     
     ctx.save();
@@ -1567,7 +1655,12 @@ function drawBossUI() {
     ctx.fillRect(x, y, barWidth, barHeight);
     
     const healthPercent = Math.max(0, currentBoss.health / currentBoss.maxHealth);
-    ctx.fillStyle = activeBoss ? '#9c27b0' : (activeSunBoss ? '#ff9800' : '#ff0055'); 
+    
+    if (activeBoss) ctx.fillStyle = '#9c27b0';
+    else if (activeSunBoss) ctx.fillStyle = '#ff9800';
+    else if (activeNemesisBoss) ctx.fillStyle = '#ff0055';
+    else if (activePhantomBoss) ctx.fillStyle = '#00ffa2';
+
     ctx.fillRect(x, y, barWidth * healthPercent, barHeight);
     
     ctx.strokeStyle = '#fff';
@@ -1591,28 +1684,24 @@ function drawSupernovaTimer() {
 function drawPlayerGravityBar() {
     if (!player) return;
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform to stick to screen
+    ctx.setTransform(1, 0, 0, 1, 0, 0); 
     
     const barWidth = 200;
-    const barHeight = 16; // Increased height slightly to fit text beautifully
+    const barHeight = 16; 
     const x = canvas.width / 2 - barWidth / 2;
     const y = canvas.height / 2 + 50; 
     
-    // Background of bar
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.fillRect(x, y, barWidth, barHeight);
     
-    // Fill color (Smooth animated fill using displayGravityBar)
     const fillPercent = player.displayGravityBar / 100;
     ctx.fillStyle = player.gravityBar > player.gravityThreshold ? '#00ffff' : '#8bc34a';
     ctx.fillRect(x, y, barWidth * fillPercent, barHeight);
     
-    // Border
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.strokeRect(x, y, barWidth, barHeight);
     
-    // Threshold marker
     const thresholdX = x + (barWidth * (player.gravityThreshold / 100));
     ctx.beginPath();
     ctx.moveTo(thresholdX, y - 4);
@@ -1621,14 +1710,12 @@ function drawPlayerGravityBar() {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Percentage Text overlaid on the bar
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${Math.floor(player.gravityBar)}%`, canvas.width / 2, y + barHeight / 2 + 1);
 
-    // Text instructions
     ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
     ctx.font = '10px Arial';
     ctx.textAlign = 'center';
@@ -1644,6 +1731,136 @@ function createExplosion(x, y, color, amount) {
     }
 }
 
+function updateAsteroidBeltEvent() {
+    if (isGameOver || isPaused || gameWon || supernovaActive) return;
+
+    if (asteroidBeltEvent.stage === 0) {
+        asteroidBeltEvent.timer--;
+        if (asteroidBeltEvent.timer <= 0) {
+            asteroidBeltEvent.stage = 1;
+            asteroidBeltEvent.stageTimer = 120; 
+            asteroidBeltEvent.paths = [];
+            asteroidBeltEvent.rocks = [];
+        }
+        return;
+    }
+
+    if (asteroidBeltEvent.stage === 1) {
+        asteroidBeltEvent.stageTimer--;
+        if (asteroidBeltEvent.stageTimer <= 0) {
+            asteroidBeltEvent.stage = 2;
+            asteroidBeltEvent.stageTimer = 150; 
+
+            const camY = player.y - canvas.height / 2;
+            const numTracks = 3 + Math.floor(Math.random() * 3); 
+
+            for (let i = 0; i < numTracks; i++) {
+                asteroidBeltEvent.paths.push({
+                    y: camY + (canvas.height * 0.15) + (Math.random() * canvas.height * 0.7),
+                    height: 75,
+                    direction: Math.random() > 0.5 ? 1 : -1 
+                });
+            }
+        }
+        return;
+    }
+
+    if (asteroidBeltEvent.stage === 2) {
+        asteroidBeltEvent.stageTimer--;
+        if (asteroidBeltEvent.stageTimer <= 0) {
+            asteroidBeltEvent.stage = 3;
+            asteroidBeltEvent.stageTimer = 240; 
+
+            asteroidBeltEvent.paths.forEach(path => {
+                const camX = player.x - canvas.width / 2;
+                let numRocks = 4 + Math.floor(Math.random() * 4);
+                
+                for (let r = 0; r < numRocks; r++) {
+                    let startX = path.direction === 1 
+                        ? camX - 250 - (r * 300) 
+                        : camX + canvas.width + 250 + (r * 300);
+                    
+                    asteroidBeltEvent.rocks.push({
+                        x: startX,
+                        y: path.y + (Math.random() - 0.5) * 20, 
+                        vx: path.direction * (13 + Math.random() * 6), 
+                        radius: 25 + Math.random() * 20,
+                        rotation: Math.random() * Math.PI * 2,
+                        rotSpeed: (Math.random() - 0.5) * 0.08,
+                        color: ['#4e342e', '#5d4037', '#795548', '#3e2723'][Math.floor(Math.random() * 4)]
+                    });
+                }
+            });
+        }
+        return;
+    }
+
+    if (asteroidBeltEvent.stage === 3) {
+        asteroidBeltEvent.stageTimer--;
+
+        for (let i = asteroidBeltEvent.rocks.length - 1; i >= 0; i--) {
+            let rock = asteroidBeltEvent.rocks[i];
+            rock.x += rock.vx;
+            rock.rotation += rock.rotSpeed;
+
+            let dist = Math.hypot(player.x - rock.x, player.y - rock.y);
+            if (dist < player.radius + rock.radius && !player.isDashing) {
+                let chunkDamage = Math.floor(player.maxHealth * 0.55); 
+                if (player.health - chunkDamage <= 0) {
+                    chunkDamage = player.health - 1; 
+                }
+                
+                if (chunkDamage > 0) {
+                    player.takeDamage(chunkDamage);
+                    floatingTexts.push(new FloatingText(player.x, player.y - 40, "CRITICAL BELT IMPACT!", '#ff3d00', 22));
+                }
+                
+                asteroidBeltEvent.rocks.splice(i, 1);
+                continue;
+            }
+
+            const camX = player.x - canvas.width / 2;
+            if ((rock.vx > 0 && rock.x > camX + canvas.width + 1200) || 
+                (rock.vx < 0 && rock.x < camX - 1200)) {
+                asteroidBeltEvent.rocks.splice(i, 1);
+            }
+        }
+
+        if (asteroidBeltEvent.stageTimer <= 0 || asteroidBeltEvent.rocks.length === 0) {
+            asteroidBeltEvent.stage = 0;
+            asteroidBeltEvent.timer = 1800 + Math.floor(Math.random() * 1800); 
+            asteroidBeltEvent.paths = [];
+            asteroidBeltEvent.rocks = [];
+        }
+    }
+}
+
+// --- NEW SYSTEM: Cinematic Death Functions ---
+function initiateDeathSequence() {
+    deathPhase = 1;
+    deathTimer = 180; 
+    
+    createExplosion(player.x, player.y, player.color, 80);
+    createExplosion(player.x, player.y, '#ff0055', 50);
+    createExplosion(player.x, player.y, '#ffffff', 30);
+    
+    shockwaves.push(new Shockwave(player.x, player.y, 'rgba(255, 0, 85, 0.8)', 2500, 18));
+    shockwaves.push(new Shockwave(player.x, player.y, 'rgba(255, 255, 255, 0.9)', 1200, 12));
+    
+    applyScreenShake(50); 
+    playGameOverSound();
+}
+
+function showDeathScreen() {
+    isGameOver = true;
+    cancelAnimationFrame(animationId);
+    hud.classList.add('hidden');
+    gameOverScreen.classList.remove('hidden'); 
+    finalScoreDisplay.innerText = score;
+    finalLevelDisplay.innerText = level;
+}
+
+
 function animate() {
     if (isGameOver || isPaused || gameWon) return;
     animationId = requestAnimationFrame(animate);
@@ -1653,7 +1870,8 @@ function animate() {
 
     if (chronoFluxTimer > 0) chronoFluxTimer--;
 
-    // Execute Random Space Event Generation
+    updateAsteroidBeltEvent();
+
     if (Math.random() < 0.003) {
         distantEvents.push(new DistantEvent(Math.random() * canvas.width, Math.random() * canvas.height));
     }
@@ -1683,11 +1901,56 @@ function animate() {
     ctx.translate(-cameraX, -cameraY);
     drawInfiniteGrid(cameraX, cameraY);
 
-    // Process Environmental Hazard Arrays
     asteroids.forEach(a => a.update());
     nebulas.forEach(n => n.update());
 
-    // EMP Weather Engine Update
+    if (asteroidBeltEvent.stage === 2) {
+        ctx.save();
+        asteroidBeltEvent.paths.forEach(path => {
+            let laneAlpha = 0.15 + Math.abs(Math.sin(frames * 0.15)) * 0.15;
+            ctx.fillStyle = `rgba(255, 0, 0, ${laneAlpha})`;
+            ctx.fillRect(cameraX - 600, path.y - path.height / 2, canvas.width + 1200, path.height);
+
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([20, 10]);
+            ctx.strokeRect(cameraX - 600, path.y - path.height / 2, canvas.width + 1200, path.height);
+        });
+        ctx.restore();
+    }
+
+    if (asteroidBeltEvent.stage === 3) {
+        asteroidBeltEvent.rocks.forEach(rock => {
+            ctx.save();
+            ctx.translate(rock.x, rock.y);
+            ctx.rotate(rock.rotation);
+
+            ctx.beginPath();
+            const points = 9;
+            for (let p = 0; p < points; p++) {
+                let rockAngle = (Math.PI * 2 / points) * p;
+                let rockRadiusVariance = rock.radius * (0.85 + Math.sin(p * 3.8) * 0.15);
+                let px = Math.cos(rockAngle) * rockRadiusVariance;
+                let py = Math.sin(rockAngle) * rockRadiusVariance;
+                
+                if (p === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fillStyle = rock.color;
+            ctx.strokeStyle = '#231512';
+            ctx.lineWidth = 3;
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(-rock.radius * 0.25, -rock.radius * 0.15, rock.radius * 0.2, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+            ctx.fill();
+            ctx.restore();
+        });
+    }
+
     if (empTimer > 0) {
         empTimer--;
         if (empTimer <= 0) {
@@ -1698,7 +1961,6 @@ function animate() {
     }
     if (empDisabledTimer > 0) empDisabledTimer--;
 
-    // Supernova Boundary System Processing
     if (supernovaActive) {
         supernovaTimer--;
         supernovaRadius -= 0.3; 
@@ -1711,10 +1973,9 @@ function animate() {
         ctx.stroke();
         ctx.restore();
 
-        // Calculate boundary violations
         enemies.forEach(e => {
             if (Math.hypot(e.x - player.x, e.y - player.y) > supernovaRadius) {
-                e.health = 0; // Outer atmospheric collapse kills entities
+                e.health = 0; 
             }
         });
 
@@ -1728,10 +1989,12 @@ function animate() {
         }
     }
 
-    // RANDOMIZED ANTI-OVERLAP BOSS ROLLING PROTOCOLS - LEVEL 10 SAFEGUARD APPLIED
-    if (level > 10 && !activeBoss && !activeSunBoss && !activeNemesisBoss && !supernovaActive) {
+    if (level > 10 && !activeBoss && !activeSunBoss && !activeNemesisBoss && !activePhantomBoss && !supernovaActive) {
         if (Math.random() < 0.0008) { 
-            if (levelsSinceNemesis >= 14 && Math.random() < 0.2) {
+            if (levelsSincePhantom >= 10 && Math.random() < 0.25) {
+                activePhantomBoss = new QuantumPhantom(player.x, player.y - 650);
+                levelsSincePhantom = 0;
+            } else if (levelsSinceNemesis >= 14 && Math.random() < 0.2) {
                 activeNemesisBoss = new AdaptiveNemesis(player.x, player.y - 650);
                 levelsSinceNemesis = 0;
             } else if (levelsSinceSun >= 7 && Math.random() < 0.4) {
@@ -1744,7 +2007,6 @@ function animate() {
         }
     }
 
-    // Frame Updates for Active Boss Entities
     if (activeBoss) {
         activeBoss.update();
         if (Math.hypot(player.x - activeBoss.x, player.y - activeBoss.y) < activeBoss.radius + player.radius) player.takeDamage(2);
@@ -1757,30 +2019,37 @@ function animate() {
         activeNemesisBoss.update();
         if (Math.hypot(player.x - activeNemesisBoss.x, player.y - activeNemesisBoss.y) < activeNemesisBoss.radius + player.radius) player.takeDamage(2);
     }
+    if (activePhantomBoss) {
+        activePhantomBoss.update();
+        if (!activePhantomBoss.isPhased && Math.hypot(player.x - activePhantomBoss.x, player.y - activePhantomBoss.y) < activePhantomBoss.radius + player.radius) {
+            player.takeDamage(2);
+        }
+    }
 
-    player.update();
+    // UPDATED CHECK: Only update and draw player if they are alive (death phase 0)
+    if (deathPhase === 0) {
+        player.update();
+    }
 
     for (let i = particles.length - 1; i >= 0; i--) {
         particles[i].update();
         if (particles[i].life <= 0) particles.splice(i, 1);
     }
 
-    // Process Weapon Vectors & Flak Synergies
     for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
         p.update();
         let hit = false;
-        let master = activeBoss || activeSunBoss || activeNemesisBoss;
+        let master = activeBoss || activeSunBoss || activeNemesisBoss || activePhantomBoss;
 
         if (master) {
-            // Adaptive Boss Deflector mitigation condition
             let isDeflected = activeNemesisBoss && activeNemesisBoss.counterShield && (frames % 120 < 60);
+            let isPhased = activePhantomBoss && activePhantomBoss.isPhased; 
             
-            if (!isDeflected && Math.hypot(p.x - master.x, p.y - master.y) < master.radius) {
+            if (!isDeflected && !isPhased && Math.hypot(p.x - master.x, p.y - master.y) < master.radius) {
                 master.health -= p.damage;
                 floatingTexts.push(new FloatingText(p.x, p.y, p.damage, '#ffffff', 18));
                 
-                // Flak Burst Activation Check (Spread Shot Level + Heavy Rounds active combo)
                 if (player.spreadCount >= 5 && player.projectileDamage > 5) {
                     for(let k=0; k<4; k++) {
                         const flakAngle = (Math.PI / 2) * k;
@@ -1793,7 +2062,7 @@ function animate() {
                     playBossDieSound();
                     score += 1500;
                     addExperience(400);
-                    activeBoss = null; activeSunBoss = null; activeNemesisBoss = null;
+                    activeBoss = null; activeSunBoss = null; activeNemesisBoss = null; activePhantomBoss = null;
                 }
             }
         }
@@ -1817,7 +2086,6 @@ function animate() {
         if (ep.distanceTraveled > 2000) enemyProjectiles.splice(i, 1);
     }
 
-    // Enemy Entity Loop Processing
     for (let i = enemies.length - 1; i >= 0; i--) {
         const enemy = enemies[i];
         enemy.update();
@@ -1829,7 +2097,7 @@ function animate() {
 
         if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < enemy.radius + player.radius) {
             if (player.isDashing) {
-                enemy.health -= 150; // Mass collision modifier execution during dash vector
+                enemy.health -= 150; 
                 createExplosion(enemy.x, enemy.y, enemy.color, 20);
             } else {
                 player.takeDamage(enemy.damage);
@@ -1870,9 +2138,9 @@ function animate() {
 
     frames++;
 
-    if (!activeBoss && !activeSunBoss && !activeNemesisBoss) {
+    if (!activeBoss && !activeSunBoss && !activeNemesisBoss && !activePhantomBoss) {
         let spawnRate = Math.max(2, 50 - Math.floor(level / 5)); 
-        if (supernovaActive) spawnRate = 4; // Absolute maximum flooding logic at endgame
+        if (supernovaActive) spawnRate = 4; 
         if (frames % spawnRate === 0 && enemies.length < 140) spawnEnemy();
     }
 
@@ -1885,16 +2153,59 @@ function animate() {
     drawBossUI();
     drawSupernovaTimer();
     drawPlayerGravityBar(); 
-}
 
-function triggerGameOver() {
-    isGameOver = true;
-    cancelAnimationFrame(animationId);
-    playGameOverSound();
-    hud.classList.add('hidden');
-    gameOverScreen.classList.remove('hidden');
-    finalScoreDisplay.innerText = score;
-    finalLevelDisplay.innerText = level;
+    if (asteroidBeltEvent.stage === 1) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); 
+
+        let dangerAlpha = 0.12 + Math.abs(Math.sin(frames * 0.1)) * 0.18; 
+        ctx.fillStyle = `rgba(255, 0, 0, ${dangerAlpha})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = '#ff3333';
+        ctx.font = 'bold 38px "Courier New", Courier, monospace';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#000000';
+        ctx.shadowBlur = 12;
+
+        if (Math.floor(frames / 15) % 2 === 0) {
+            ctx.fillText("⚠️ ASTEROID BELT NEARBY ⚠️", canvas.width / 2, canvas.height / 3.2);
+        }
+        ctx.restore();
+    }
+    
+    // --- NEW: DEATH CINEMATIC OVERLAY ---
+    if (deathPhase === 1) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); 
+        
+        let fadeProgress = 1 - (deathTimer / 180);
+        ctx.fillStyle = `rgba(10, 0, 0, ${fadeProgress * 0.9})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (Math.random() < 0.4) {
+            const offsetX = (Math.random() - 0.5) * 30;
+            const offsetY = (Math.random() - 0.5) * 30;
+            
+            ctx.fillStyle = Math.random() > 0.5 ? '#ff0055' : '#00ffff';
+            ctx.font = 'bold 72px "Courier New", Courier, monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = ctx.fillStyle;
+            ctx.shadowBlur = 20;
+            
+            ctx.fillText("SYSTEM CRITICAL FAILURE", (canvas.width / 2) + offsetX, (canvas.height / 2) + offsetY);
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.fillRect(0, canvas.height / 2 + offsetY - 10, canvas.width, 5);
+        }
+        ctx.restore();
+        
+        deathTimer--;
+        if (deathTimer <= 0) {
+            showDeathScreen();
+        }
+    }
 }
 
 function returnToMenu() {
