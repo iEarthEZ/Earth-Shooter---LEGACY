@@ -1,3 +1,9 @@
+// --- NEW: Inject Modern Fonts via Google Fonts ---
+const fontLink = document.createElement('link');
+fontLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Montserrat:wght@700&family=Poppins:wght@400;700&display=swap';
+fontLink.rel = 'stylesheet';
+document.head.appendChild(fontLink);
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -1209,7 +1215,8 @@ class FloatingText {
         
         ctx.save();
         ctx.globalAlpha = Math.max(0, this.life);
-        ctx.font = `bold ${this.size}px Arial`;
+        // --- UPDATED FONT HERE ---
+        ctx.font = `bold ${this.size}px 'Poppins', sans-serif`;
         ctx.fillStyle = this.color;
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 2;
@@ -1647,7 +1654,8 @@ function drawBossUI() {
     const y = 40;
     
     ctx.fillStyle = '#fff';
-    ctx.font = '20px "Courier New", Courier, monospace';
+    // --- UPDATED FONT HERE ---
+    ctx.font = 'bold 20px "Poppins", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(currentBoss.name, canvas.width / 2, y - 10);
     
@@ -1674,7 +1682,8 @@ function drawSupernovaTimer() {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#ff0055';
-    ctx.font = 'bold 26px Arial';
+    // --- UPDATED FONT HERE ---
+    ctx.font = 'bold 26px "Poppins", sans-serif';
     ctx.textAlign = 'center';
     let secondsLeft = Math.ceil(supernovaTimer / 60);
     ctx.fillText(`CONTAINMENT CRITICAL: ${secondsLeft}s`, canvas.width / 2, 100);
@@ -1711,13 +1720,15 @@ function drawPlayerGravityBar() {
     ctx.stroke();
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px Arial';
+    // --- UPDATED FONT HERE ---
+    ctx.font = 'bold 12px "Inter", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${Math.floor(player.gravityBar)}%`, canvas.width / 2, y + barHeight / 2 + 1);
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.font = '10px Arial';
+    // --- UPDATED FONT HERE ---
+    ctx.font = '10px "Inter", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText("STABILIZE [G]", canvas.width / 2, y + 35);
@@ -2163,7 +2174,8 @@ function animate() {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         ctx.fillStyle = '#ff3333';
-        ctx.font = 'bold 38px "Courier New", Courier, monospace';
+        // --- UPDATED FONT HERE ---
+        ctx.font = 'bold 38px "Montserrat", sans-serif';
         ctx.textAlign = 'center';
         ctx.shadowColor = '#000000';
         ctx.shadowBlur = 12;
@@ -2188,7 +2200,8 @@ function animate() {
             const offsetY = (Math.random() - 0.5) * 30;
             
             ctx.fillStyle = Math.random() > 0.5 ? '#ff0055' : '#00ffff';
-            ctx.font = 'bold 72px "Courier New", Courier, monospace';
+            // --- UPDATED FONT HERE ---
+            ctx.font = 'bold 72px "Montserrat", sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.shadowColor = ctx.fillStyle;
